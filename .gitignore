@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc, extracted_pages/
+translated_pages/
+*.zip
+.env
+translated_manga.txt

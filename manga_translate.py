@@ -11,7 +11,7 @@ import cv2
 ZIP_Path = "manga raws.zip"
 EXTRACT_DIR = "extracted_pages"
 OUTPUT_FILE = "translated_manga.txt"
-MAX_WORKERS = 4 #idk
+OUTPUT_IMG_DIR = "translated_pages"
 
 @dataclass
 class MangaPage:
@@ -86,6 +86,93 @@ def crop_bubbles(image_path: Path, bubbles: list[tuple[int, int, int, int]]) -> 
 
     return cropped_paths
 
+def get_font(size: int):
+    from PIL import ImageFont
+
+    candidates = [
+        "arial.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ]
+
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except (OSError, IOError):
+            continue
+
+    return ImageFont.load_default()
+
+def wrap_text_to_width(draw, text: str, font, max_width: int) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+
+    lines = []
+    current_line = words[0]
+
+    for word in words[1:]:
+        test_line = f"{current_line}, word"
+        bbox = draw.textbox((0, 0), text_line, font=font)
+        line_width = bbox[2] - bbox[0]
+
+        if line_width <= max_width:
+            current_line = test_line
+        else:
+            lines.append(current_line)
+            current_line = word
+
+    lines.append(current_line)
+    return lines
+
+def typeset_bubble(draw, box: tuple[int, int, int, int], text: str, bg_color=(255, 255, 255), text_color=(0, 0, 0)):
+    x, y, w, h = box
+    padding = 6
+
+    draw.rectangle([x, y, x + w, y + h], fill=bg_color)
+
+    if not text.strip():
+        return
+
+    max_width = max(w - padding * 2, 10)
+    max_height = max(h - padding * 2, 10)
+
+    font_size = max(min(h // 4, 28), 8)
+
+    while font_size >= 8:
+        font = get_font(font_size)
+        lines = wrap_text_to_width(draw, text, font, max_width)
+
+        line_heights = []
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font = font)
+            line_heights.append(bbox[3] - bbox[1])
+        total_height = sum(line_heights) + (len(lines) - 1) * 2
+
+        if total_height <= max_height:
+            break
+        font_size -= 2
+    else:
+        font = get_font(8)
+        lines = wrap_text_to_width(draw, text, font, max_width)
+
+        total_height = sum(
+            draw.textbbox((0, 0), line, font=font)[3] - draw.textbbox((0, 0), line, font=font)[1]
+            for line in lines
+        ) + (len(lines) - 1) * 2
+
+        current_y = y + (h - total_height) // 2
+
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            line_w = bbox[2] - bbox[0]
+            line_h = bbox[3] - bbox[1]
+            line_x = x + (w - line_w) // 2
+            draw.text((line_x, current_y), line, font=font, fill=text_color)
+            current_y += line_h + 2
+
+        
 _mocr = None
 
 def get_mocr():
@@ -106,7 +193,11 @@ def call_translator_api(text: str) -> str: #idk how right this is
     return translated.text
 
 def process_page(pg: MangaPage) -> tuple[int, str]:
+    from PIL import Image, ImageDraw
+
     bubbles = detect_bubbles(pg.path)
+    page_img = Image.open(pg.path).convert("RBG")
+    draw = ImageDraw.Draw(page_img)
 
     if not bubbles:
         from PIL import Image
@@ -117,16 +208,25 @@ def process_page(pg: MangaPage) -> tuple[int, str]:
     cropped_paths = crop_bubbles(pg.path, bubbles)
 
     lines = []
-    for cropped_path in cropped_paths:
-        japanese_text = call_japanese_image_to_text_api(cropped_path)
+    for box, cropped_img in zip(bubbles, cropped_images):
+        japanese_text = call_japanese_image_to_text_api(cropped_img)
         if not japanese_text.strip():
             continue
         english_text = call_translator_api(japanese_text)
         lines.append(english_text)
 
+        typeset_bubble(draw, box, english_text)
+
+    save_typeset_page(page_img, pg.page_number)
+
     page_text = "\n".join(lines)
     return pg.page_number, page_text
 
+def save_typeset_page(page_img, page_number: int):
+    os.makedirs(OUTPUT_IMG_DIR, exist_ok=True)
+    out_path = Path(OUTPUT_IMG_DIR) / f"page_{page_number:03d}.png"
+    page_img.save(out_path)
+    
 def main():
     pages = unzip_folder(ZIP_Path, EXTRACT_DIR)
 

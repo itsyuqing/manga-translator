@@ -78,7 +78,8 @@ def detect_bubbles(image_path: Path, min_area: int = 2000) -> list[tuple[int, in
 def crop_bubbles(image_path: Path, bubbles: list[tuple[int, int, int, int]]) -> list[Path]:
     from PIL import Image
 
-    img = Image.open(image_path)
+    img = Image.open(image_path).convert("RGB")
+
     cropped_paths = []
     for (x, y, w, h) in bubbles:
         cropped_img = img.crop((x, y, x + w, y + h))
@@ -113,8 +114,9 @@ def wrap_text_to_width(draw, text: str, font, max_width: int) -> list[str]:
     current_line = words[0]
 
     for word in words[1:]:
-        test_line = f"{current_line}, word"
-        bbox = draw.textbox((0, 0), text_line, font=font)
+        test_line = f"{current_line} {word}"
+
+        bbox = draw.textbbox((0, 0), test_line, font=font)
         line_width = bbox[2] - bbox[0]
 
         if line_width <= max_width:
@@ -157,20 +159,20 @@ def typeset_bubble(draw, box: tuple[int, int, int, int], text: str, bg_color=(25
         font = get_font(8)
         lines = wrap_text_to_width(draw, text, font, max_width)
 
-        total_height = sum(
-            draw.textbbox((0, 0), line, font=font)[3] - draw.textbbox((0, 0), line, font=font)[1]
-            for line in lines
-        ) + (len(lines) - 1) * 2
+    total_height = sum(
+        draw.textbbox((0, 0), line, font=font)[3] - draw.textbbox((0, 0), line, font=font)[1]
+        for line in lines
+    ) + (len(lines) - 1) * 2
 
-        current_y = y + (h - total_height) // 2
+    current_y = y + (h - total_height) // 2
 
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            line_w = bbox[2] - bbox[0]
-            line_h = bbox[3] - bbox[1]
-            line_x = x + (w - line_w) // 2
-            draw.text((line_x, current_y), line, font=font, fill=text_color)
-            current_y += line_h + 2
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        line_w = bbox[2] - bbox[0]
+        line_h = bbox[3] - bbox[1]
+        line_x = x + (w - line_w) // 2
+        draw.text((line_x, current_y), line, font=font, fill=text_color)
+        current_y += line_h + 2
 
         
 _mocr = None
@@ -196,16 +198,16 @@ def process_page(pg: MangaPage) -> tuple[int, str]:
     from PIL import Image, ImageDraw
 
     bubbles = detect_bubbles(pg.path)
-    page_img = Image.open(pg.path).convert("RBG")
+    page_img = Image.open(pg.path).convert("RGB")
     draw = ImageDraw.Draw(page_img)
 
     if not bubbles:
-        from PIL import Image
-        japanese_text = call_japanese_image_to_text_api(Image.open(pg.path))
+        japanese_text = call_japanese_image_to_text_api(page_img)
         english_text = call_translator_api(japanese_text)
+        save_typeset_page(page_img, pg.page_number)
         return pg.page_number, english_text
 
-    cropped_paths = crop_bubbles(pg.path, bubbles)
+    cropped_images = crop_bubbles(pg.path, bubbles)
 
     lines = []
     for box, cropped_img in zip(bubbles, cropped_images):

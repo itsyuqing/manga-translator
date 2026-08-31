@@ -45,8 +45,9 @@ def detect_bubbles(image_path: Path, min_area: int = 2000) -> list[tuple[int, in
         return []
 
     height, width = img.shape
+    page_area = width * height
 
-    _, thresh = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    _, thresh = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -57,16 +58,23 @@ def detect_bubbles(image_path: Path, min_area: int = 2000) -> list[tuple[int, in
             continue
 
         x, y, w, h = cv2.boundingRect(c)
+        bbox_area = w * h
 
-        if w > width * 0.9 and h > height * 0.9:
+        if bbox_area > page_area * 0.04:
             continue
 
         aspect = w / h if h else 0
-        if aspect < 0.5 or aspect > 5:
+        if aspect < 0.4 or aspect > 3.5:
             continue
 
-        filled_ratio = area / (w * h) if (w * h) else 0
-        if filled_ratio < 0.3:
+        extent = area / bbox_area if bbox_area else 0
+        if extent < 0.55:
+            continue
+
+        hull = cv2.convexHull(c)
+        hull_area = cv2.contourArea(hull)
+        solidity = area / hull_area if hull_area else 0
+        if solidity < 0.85:
             continue
 
         bubbles.append((x, y, w, h))
@@ -228,6 +236,15 @@ def save_typeset_page(page_img, page_number: int):
     os.makedirs(OUTPUT_IMG_DIR, exist_ok=True)
     out_path = Path(OUTPUT_IMG_DIR) / f"page_{page_number:03d}.png"
     page_img.save(out_path)
+
+def debug_bubbles(image_path: Path, bubbles: list[tuple[int, int, int, int]], out_path: str = "debug_bubbles.png"):
+    from PIL import Image, ImageDraw
+
+    img = Image.open(image_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    for (x, y, w, h) in bubbles:
+        draw.rectangle([x, y, x + w, y + h], outline = (255, 0, 0), width = 3)
+    img.save(out_path)
     
 def main():
     pages = unzip_folder(ZIP_Path, EXTRACT_DIR)

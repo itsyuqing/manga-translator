@@ -1,7 +1,16 @@
 venv/
 __pycache__/
-*.pyc, extracted_pages/
+*.pyc
+
+extracted_pages/
 translated_pages/
+debug_bubbles.png
+translated_manga.txt
+
 *.zip
+
+.DS_Store
+.vscode/
+
 .env
 translated_manga.txt

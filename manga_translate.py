@@ -5,7 +5,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import re
 import shutil
-import cv2
+from ultralytics import YOLO
+from huggingface_hub import hf_hub_download
+import time
 
 
 ZIP_Path = "manga raws.zip"
@@ -39,63 +41,32 @@ def unzip_folder(zip_path: str, extract_dir: str) -> list[MangaPage]:
 
     return pages
 
-def detect_bubbles(image_path: Path, min_area: int = 500, debug: bool = False) -> list[tuple[int, int, int, int]]:
-    img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        return []
+_bubble_model_ = None
 
-    height, width = img.shape
-    page_area = width * height
+def get_bubble_model():
+    global _bubble_model_
+    if _bubble_model_ is None:
+        weights_path = hf_hub_download(
+            repo_id="ogkalu/comic-speech-bubble-detector-yolov8m",
+            filename="comic-speech-bubble-detector.pt",
+        )
+        _bubble_model_ = YOLO(weights_path)
 
-    thresh = cv2.adaptiveThreshold(
-        img, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        blockSize=35,
-        C=10,
-    )
+    return _bubble_model_
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+def detect_bubbles(image_path: Path, conf: float = 0.35, debug: bool = False) -> list[tuple[int, int, int, int]]:
+    model = get_bubble_model()
+    results = model.predict(str(image_path), conf = conf, verbose = False)[0]
 
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    if debug:
-        print(f"raw countours found: {len(contours)}")
-        
     bubbles = []
-    for c in contours:
-        area = cv2.contourArea(c)
-        if area < min_area:
-            continue
-
-        x, y, w, h = cv2.boundingRect(c)
-        bbox_area = w * h
-
-        if bbox_area > page_area * 0.06:
-            if debug: print(f"reject size {(x, y, w, h)} bbox_area = {bbox_area}")
-            continue
-
-        aspect = w / h if h else 0
-        if aspect < 0.25 or aspect > 4.5:
-            if debug: print(f"reject aspect {(x, y, w, h)} aspect = {aspect:.2f}")
-            continue
-
-        extent = area / bbox_area if bbox_area else 0
-        if extent < 0.35:
-            if debug: print(f"reject extent {(x, y, w, h)} extent = {extent:.2f}")
-            continue
-
-        hull = cv2.convexHull(c)
-        hull_area = cv2.contourArea(hull)
-        solidity = area / hull_area if hull_area else 0
-        if solidity < 0.6:
-            if debug: print(f"reject solidity {(x, y, w, h)} solidity = {solidity:.2f}")
-            continue
-
+    for box in results.boxes:
+        x1, y1, x2, y2 = box.xyxy[0].tolist()
+        x, y, w, h = int(x1), int(y1), int(x2 - x1), int(y2 - y1)
         bubbles.append((x, y, w, h))
+        if debug:
+            print(f"bubble {(x, y, w, h)} conf = {float(box.conf[0]):.2f}")
 
-    bubbles.sort(key=lambda b: (b[1] // 150, -b[0]))
+    bubbles.sort(key = lambda b: (b[1] // 150, -b[0]))
 
     return bubbles
 
@@ -212,11 +183,22 @@ def call_japanese_image_to_text_api(image) -> str:
     mocr = get_mocr()
     return mocr(image)
 
-def call_translator_api(text: str) -> str: #idk how right this is
-    from googletrans import Translator
-    translator = Translator()
-    translated = translator.translate(text, src='ja', dest='en')
-    return translated.text
+def call_translator_api(text: str, retries: int = 3, delay: float = 1.5) -> str:
+    from deep_translator import GoogleTranslator
+
+    if not text or not text.strip():
+        return ""
+
+    last_error = None
+    for attempt in range(retries):
+        try:
+            return GoogleTranslator(source = 'ja', target = 'en').translate(text)
+        except Exception as e:
+            last_error = e
+            time.sleep(delay)
+    
+    print(f"translation failed after {retries} attempts for '{text}': {last_error}")
+    return f"[untranslated: {text}]"
 
 def process_page(pg: MangaPage) -> tuple[int, str]:
     from PIL import Image, ImageDraw

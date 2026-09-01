@@ -6,6 +6,7 @@ extracted_pages/
 translated_pages/
 debug_bubbles.png
 translated_manga.txt
+debug_log.txt
 
 *.zip
 

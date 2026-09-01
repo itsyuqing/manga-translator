@@ -39,7 +39,7 @@ def unzip_folder(zip_path: str, extract_dir: str) -> list[MangaPage]:
 
     return pages
 
-def detect_bubbles(image_path: Path, min_area: int = 2000) -> list[tuple[int, int, int, int]]:
+def detect_bubbles(image_path: Path, min_area: int = 500, debug: bool = False) -> list[tuple[int, int, int, int]]:
     img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
     if img is None:
         return []
@@ -47,10 +47,22 @@ def detect_bubbles(image_path: Path, min_area: int = 2000) -> list[tuple[int, in
     height, width = img.shape
     page_area = width * height
 
-    _, thresh = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    thresh = cv2.adaptiveThreshold(
+        img, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        blockSize=35,
+        C=10,
+    )
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
 
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+    if debug:
+        print(f"raw countours found: {len(contours)}")
+        
     bubbles = []
     for c in contours:
         area = cv2.contourArea(c)
@@ -60,21 +72,25 @@ def detect_bubbles(image_path: Path, min_area: int = 2000) -> list[tuple[int, in
         x, y, w, h = cv2.boundingRect(c)
         bbox_area = w * h
 
-        if bbox_area > page_area * 0.04:
+        if bbox_area > page_area * 0.06:
+            if debug: print(f"reject size {(x, y, w, h)} bbox_area = {bbox_area}")
             continue
 
         aspect = w / h if h else 0
-        if aspect < 0.4 or aspect > 3.5:
+        if aspect < 0.25 or aspect > 4.5:
+            if debug: print(f"reject aspect {(x, y, w, h)} aspect = {aspect:.2f}")
             continue
 
         extent = area / bbox_area if bbox_area else 0
-        if extent < 0.55:
+        if extent < 0.35:
+            if debug: print(f"reject extent {(x, y, w, h)} extent = {extent:.2f}")
             continue
 
         hull = cv2.convexHull(c)
         hull_area = cv2.contourArea(hull)
         solidity = area / hull_area if hull_area else 0
-        if solidity < 0.85:
+        if solidity < 0.6:
+            if debug: print(f"reject solidity {(x, y, w, h)} solidity = {solidity:.2f}")
             continue
 
         bubbles.append((x, y, w, h))

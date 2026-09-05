@@ -93,9 +93,6 @@ _CJK_PATTERN_ = re.compile(r'[\u3040-\u30ff\u4e00-\u9fff\uff66-\uff9f]')
 def contains_cjk(text: str) -> bool:
     return bool(_CJK_PATTERN_.search(text))
 
-def needs_cjk_font(text: str) -> bool:
-    return any(ord(ch) > 127 for ch in text)
-
 _JP_PUNCT_MAP = {
     "\u2025": "...",
     "\u2026": "...",
@@ -120,6 +117,8 @@ def is_meaningful_text(text: str) -> bool:
         return False
     return bool(re.search(r'\w', stripped, re.UNICODE))
 
+FONTS_DIR = Path(__file__).resolve().parent / "fonts"
+
 def get_font(size: int, cjk: bool = False):
     from PIL import ImageFont
 
@@ -132,6 +131,8 @@ def get_font(size: int, cjk: bool = False):
         ]
     else:
         candidates = [
+            FONTS_DIR / "AnimeAce20Bb-K97.ttf",
+            FONTS_DIR / "DejaVuSans-Bold.ttf",
             "arial.ttf",
             "C:\\Windows\\Fonts\\arial.ttf",
             "/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -210,7 +211,7 @@ class BubbleLayout:
     text_color: tuple
     bg_color: tuple
 
-def computer_bubble_layout(draw, box: tuple[int, int, int, int], text: str, bg_color = (255, 255, 255), text_color = (0, 0, 0), max_font_size: int = 20, min_font_size: int = 6) -> BubbleLayout:
+def compute_bubble_layout(draw, box: tuple[int, int, int, int], text: str, bg_color = (255, 255, 255), text_color = (0, 0, 0), max_font_size: int = 20, min_font_size: int = 6) -> BubbleLayout:
     x, y, w, h = box
     padding = 6
     pad_out = 3
@@ -221,7 +222,7 @@ def computer_bubble_layout(draw, box: tuple[int, int, int, int], text: str, bg_c
     if not text.strip():
         return BubbleLayout(fill_box, corner_radius, [], None, x + w // 2, y, text_color, bg_color)
 
-    cjk = needs_cjk_font(text)
+    cjk = contains_cjk(text)
     max_width = max(w - padding * 2, 10)
     max_height = max(h - padding * 2, 10)
 
@@ -347,14 +348,14 @@ def process_page(pg: MangaPage) -> tuple[int, str]:
 
         english_text = call_translator_api(japanese_text)
         lines.append(english_text)
-        layouts.append(computer_bubble_layout(draw, box, english_text))
+        layouts.append(compute_bubble_layout(draw, box, english_text))
 
     for layout in layouts:
         draw_bubble_background(draw, layout)
 
     for layout in layouts:
         draw_bubble_text(draw, layout)
-        
+
     save_typeset_page(page_img, pg.page_number)
 
     page_text = "\n".join(lines)

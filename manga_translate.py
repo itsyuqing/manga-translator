@@ -102,13 +102,26 @@ _JP_PUNCT_MAP = {
     "\uff5e": "~",
     "\u3002": ".",
     "\u3001": ",",
+    "\u2116": "...",
 }
 
 def normalize_punctuation(text: str) -> str:
     for jp_char, ascii_equiv in _JP_PUNCT_MAP.items():
         text = text.replace(jp_char, ascii_equiv)
 
+    text = re.sub(r'(\.\.\.\s*){2,}', '...', text)
+
     return text
+
+_ELLIPSIS_CHARS_ = "\u2025\u2026\u22ef\u30fb"
+_ELLIPSIS_RUN_PATTERN_ = re.compile(f'[{_ELLIPSIS_CHARS_}]+')
+
+def normalize_ellipsis_runs(text: str) -> str:
+    return _ELLIPSIS_RUN_PATTERN_.sub('...', text)
+
+def is_ellipsis_only(cleaned_text: str) -> bool:
+    stripped = re.sub(r'[.\s]', '', cleaned_text)
+    return not stripped and bool(cleaned_text.strip())
 
 def is_meaningful_text(text: str) -> bool:
     stripped = text.strip()
@@ -131,6 +144,7 @@ def get_font(size: int, cjk: bool = False):
         ]
     else:
         candidates = [
+            FONTS_DIR / "animeacev3.ttf",
             FONTS_DIR / "AnimeAce20Bb-K97.ttf",
             FONTS_DIR / "DejaVuSans-Bold.ttf",
             "arial.ttf",
@@ -303,17 +317,24 @@ def call_japanese_image_to_text_api(image) -> str:
     mocr = get_mocr()
     return mocr(image)
 
-def call_translator_api(text: str, retries: int = 10, delay: float = 3) -> str:
+def call_translator_api(text: str, retries: int = 20, delay: float = 3) -> str:
     from deep_translator import GoogleTranslator
 
     if not text or not text.strip():
         return ""
 
+    cleaned = normalize_ellipsis_runs(text)
+
+    if is_ellipsis_only(cleaned):
+        return "..."
+    
     last_error = None
     for attempt in range(retries):
         try:
-            translated = GoogleTranslator(source = 'ja', target = 'en').translate(text)
-            return normalize_punctuation(translated)
+            translated = GoogleTranslator(source = 'ja', target = 'en').translate(cleaned)
+            translated = normalize_punctuation(translated)
+            translated = re.sub(r'\b\w{1,3}\?\s*\w{1,3}\?\b', '...', translated)
+            return translated
         
         except Exception as e:
             last_error = e

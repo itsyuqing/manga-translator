@@ -76,15 +76,11 @@ def detect_bubbles(image_path: Path, conf: float = 0.35, min_width: int = 40, mi
 
     return bubbles
 
-def crop_bubbles(image_path: Path, bubbles: list[tuple[int, int, int, int]]) -> list[Path]:
-    from PIL import Image
-
-    img = Image.open(image_path).convert("RGB")
-
+def crop_bubbles(img, bubbles: list[tuple[int, int, int, int]]) -> list:
     cropped_paths = []
+
     for (x, y, w, h) in bubbles:
-        cropped_img = img.crop((x, y, x + w, y + h))
-        cropped_paths.append(cropped_img)
+        cropped_paths.append(img.crop((x, y, x + w, y + h)))
 
     return cropped_paths
 
@@ -96,25 +92,7 @@ def contains_cjk(text: str) -> bool:
 def needs_cjk_font(text: str) -> bool:
     return contains_cjk(text)
 
-_JP_PUNCT_MAP = {
-    "\u2025": "...",
-    "\u2026": "...",
-    "\u22ef": "...",
-    "\u30fb": "",
-    "\u301c": "~",
-    "\uff5e": "~",
-    "\u3002": ".",
-    "\u3001": ",",
-    "\u2018": "'", "\u2019": "'",
-    "\u201c": '"', "\u201d": '"',
-    "\u2013": "-", "\u2014": "--",
-    "\u00ab": '"', "\u00bb": '"',
-}
-
 def normalize_punctuation(text: str) -> str:
-    for jp_char, ascii_equiv in _JP_PUNCT_MAP.items():
-        text = text.replace(jp_char, ascii_equiv)
-
     text = re.sub(r'．', '.', text)
     return text
 
@@ -346,7 +324,7 @@ def process_page(pg: MangaPage) -> tuple[int, str]:
         save_typeset_page(page_img, pg.page_number)
         return pg.page_number, english_text
 
-    cropped_images = crop_bubbles(pg.path, bubbles)
+    cropped_images = crop_bubbles(page_img, bubbles)
 
     lines = []
     layouts: list[BubbleLayout] = []

@@ -94,7 +94,7 @@ def contains_cjk(text: str) -> bool:
     return bool(_CJK_PATTERN_.search(text))
 
 def needs_cjk_font(text: str) -> bool:
-    return any(ord(ch) > 127 for ch in text)
+    return contains_cjk(text)
 
 _JP_PUNCT_MAP = {
     "\u2025": "...",
@@ -105,12 +105,17 @@ _JP_PUNCT_MAP = {
     "\uff5e": "~",
     "\u3002": ".",
     "\u3001": ",",
+    "\u2018": "'", "\u2019": "'",
+    "\u201c": '"', "\u201d": '"',
+    "\u2013": "-", "\u2014": "--",
+    "\u00ab": '"', "\u00bb": '"',
 }
 
 def normalize_punctuation(text: str) -> str:
     for jp_char, ascii_equiv in _JP_PUNCT_MAP.items():
         text = text.replace(jp_char, ascii_equiv)
 
+    text = re.sub(r'\.(?:\s*\.)+', '...', text)
     return text
 
 def is_meaningful_text(text: str) -> bool:
@@ -134,6 +139,8 @@ def get_font(size: int, cjk: bool = False):
         ]
     else:
         candidates = [
+            FONTS_DIR / "AnimeAce3BB_Regular.otf",
+            FONTS_DIR / "animeace2_reg.ttf",
             FONTS_DIR / "animeacev3.ttf",
             FONTS_DIR / "AnimeAce20Bb-K97.ttf",
             FONTS_DIR / "DejaVuSans-Bold.ttf",

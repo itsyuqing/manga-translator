@@ -115,7 +115,7 @@ def normalize_punctuation(text: str) -> str:
     for jp_char, ascii_equiv in _JP_PUNCT_MAP.items():
         text = text.replace(jp_char, ascii_equiv)
 
-    text = re.sub(r'\.(?:\s*\.)+', '...', text)
+    text = re.sub(r'．', '.', text)
     return text
 
 def is_meaningful_text(text: str) -> bool:
